@@ -1,0 +1,724 @@
+<!-- index.html · 前端：Web 控制台（仪表盘 / 管道可视化 / 排行榜 / 配置 / 日志 / 输出预览） -->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CF-IP Pipeline · Cloudflare 最优回源 IP 发现与推送系统</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/inter@5.0.16/latin-400-normal.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/inter@5.0.16/latin-500-normal.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/inter@5.0.16/latin-600-normal.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/inter@5.0.16/latin-700-normal.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/inter@5.0.16/latin-800-normal.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/jetbrains-mono@5.0.18/latin-400-normal.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/jetbrains-mono@5.0.18/latin-600-normal.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+:root{
+  --bg:#070b12; --panel:rgba(15,22,35,.82); --panel2:#0d1522; --line:rgba(148,163,184,.10);
+  --txt:#e6ebf4; --muted:#8b96a8; --dim:#5b6577;
+  --orange:#f6821f; --amber:#fbad41; --green:#34d399; --red:#f87171; --blue:#38bdf8; --violet:#a78bfa;
+  --mono:'JetBrains Mono',ui-monospace,monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--txt);font-family:'Inter','PingFang SC','Microsoft YaHei',sans-serif;font-size:14px;min-height:100vh}
+#bgfx{position:fixed;inset:0;z-index:-1;background:
+ radial-gradient(900px 520px at 85% -10%,rgba(246,130,31,.12),transparent 60%),
+ radial-gradient(720px 460px at -8% 28%,rgba(56,189,248,.08),transparent 60%),
+ radial-gradient(820px 520px at 50% 115%,rgba(167,139,250,.07),transparent 60%)}
+#bgfx::before{content:'';position:absolute;inset:0;
+ background-image:linear-gradient(rgba(148,163,184,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(148,163,184,.05) 1px,transparent 1px);
+ background-size:44px 44px;mask-image:radial-gradient(ellipse at 50% 0%,#000 25%,transparent 78%)}
+.wrap{max-width:1400px;margin:0 auto;padding:20px 26px 40px}
+header{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;padding:6px 0 20px}
+.brand{display:flex;align-items:center;gap:14px}
+.logo{width:48px;height:48px;border-radius:14px;display:grid;place-items:center;color:#fff;position:relative;
+ background:linear-gradient(135deg,var(--orange),var(--amber));box-shadow:0 8px 26px rgba(246,130,31,.35)}
+.logo svg{width:26px;height:26px}
+.logo.scanning::after{content:'';position:absolute;inset:-4px;border-radius:17px;border:2px solid rgba(246,130,31,.6);animation:ping 1.4s ease-out infinite}
+@keyframes ping{0%{transform:scale(.9);opacity:1}100%{transform:scale(1.35);opacity:0}}
+.brand h1{font-size:19px;font-weight:800;letter-spacing:.3px}
+.brand h1 em{font-style:normal;color:var(--orange)}
+.brand p{font-size:12px;color:var(--muted);margin-top:2px}
+.hright{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.pill{display:inline-flex;align-items:center;gap:7px;font-size:12px;padding:7px 12px;border:1px solid var(--line);border-radius:999px;background:var(--panel);color:var(--muted);white-space:nowrap}
+.pill .dot{width:8px;height:8px;border-radius:50%;background:var(--dim);flex:none}
+.pill.ok .dot{background:var(--green);box-shadow:0 0 10px var(--green)}
+.pill.warn .dot{background:var(--amber);box-shadow:0 0 10px var(--amber)}
+.pill.err .dot{background:var(--red);box-shadow:0 0 10px var(--red)}
+.pill.busy .dot{background:var(--orange);box-shadow:0 0 10px var(--orange);animation:blink 1s infinite}
+@keyframes blink{50%{opacity:.35}}
+.btn{border:1px solid var(--line);background:var(--panel2);color:var(--txt);padding:9px 16px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;transition:.18s;font-family:inherit;display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+.btn:hover{border-color:rgba(246,130,31,.5);transform:translateY(-1px)}
+.btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
+.btn.primary{background:linear-gradient(135deg,var(--orange),#e06a0a);border:none;color:#fff;box-shadow:0 6px 20px rgba(246,130,31,.35)}
+.btn.primary:hover{filter:brightness(1.08)}
+.btn.small{padding:5px 11px;font-size:12px;border-radius:8px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;backdrop-filter:blur(12px);transition:border-color .2s}
+.card:hover{border-color:rgba(148,163,184,.18)}
+.card h3{font-size:14px;font-weight:700;display:flex;align-items:center;gap:8px}
+.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:16px}
+.stat{padding:16px 18px;display:flex;gap:14px;align-items:center;border-left:3px solid var(--acc,var(--orange))}
+.s-ico{width:42px;height:42px;border-radius:11px;display:grid;place-items:center;background:rgba(255,255,255,.04);color:var(--acc);flex:none}
+.s-ico svg{width:21px;height:21px}
+.s-val{font-size:24px;font-weight:800;font-family:var(--mono);line-height:1.1}
+.s-val small{font-size:12px;color:var(--muted);font-weight:500;margin-left:2px}
+.s-lab{font-size:12px;color:var(--muted);margin-top:3px}
+.s-sub{font-size:11px;color:var(--dim);margin-top:2px;font-family:var(--mono)}
+.pipeline{display:flex;align-items:center;padding:16px 20px;margin-bottom:16px;gap:6px}
+.pstep{display:flex;align-items:center;gap:10px;flex:none}
+.pic{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;background:var(--panel2);border:1.5px solid var(--line);color:var(--dim);transition:.3s}
+.pic svg{width:18px;height:18px}
+.pstep b{font-size:12.5px;display:block;color:var(--muted);transition:.3s}
+.pstep span{font-size:10.5px;color:var(--dim);display:block;margin-top:1px}
+.pstep.active .pic{border-color:var(--orange);color:var(--orange);box-shadow:0 0 18px rgba(246,130,31,.4);animation:glow 1.2s ease-in-out infinite alternate}
+@keyframes glow{to{box-shadow:0 0 26px rgba(246,130,31,.65)}}
+.pstep.active b{color:var(--txt)}
+.pstep.done .pic{border-color:rgba(52,211,153,.55);color:var(--green)}
+.pstep.done b{color:var(--muted)}
+.pline{flex:1;height:2px;background:var(--line);border-radius:2px;position:relative;overflow:hidden;min-width:18px}
+.pline.done{background:linear-gradient(90deg,var(--green),var(--orange))}
+.pline.active::after{content:'';position:absolute;top:0;left:-30%;width:30%;height:100%;background:linear-gradient(90deg,transparent,var(--orange),transparent);animation:flow 1.1s linear infinite}
+@keyframes flow{to{left:110%}}
+.progress-card{padding:16px 20px;margin-bottom:16px}
+.prog-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:12px;flex-wrap:wrap}
+.prog-head .phase{font-size:13px;font-weight:600;color:var(--amber);display:flex;align-items:center;gap:8px}
+.spinner{width:14px;height:14px;border:2px solid rgba(251,173,65,.25);border-top-color:var(--amber);border-radius:50%;animation:spin .8s linear infinite;flex:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+.prog-meta{font-size:12px;color:var(--muted);font-family:var(--mono)}
+.bar{height:9px;background:rgba(255,255,255,.05);border-radius:99px;overflow:hidden}
+.bar>div{height:100%;width:0%;border-radius:99px;background:linear-gradient(90deg,var(--orange),var(--amber));transition:width .35s;box-shadow:0 0 14px rgba(246,130,31,.5)}
+.grid{display:grid;grid-template-columns:1fr 380px;gap:16px;align-items:start}
+.col{display:flex;flex-direction:column;gap:16px}
+.charts{padding:16px 20px}
+.charts .cgrid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:14px}
+.chart-box{background:rgba(255,255,255,.02);border:1px solid var(--line);border-radius:12px;padding:12px}
+.chart-box p{font-size:11.5px;color:var(--muted);margin-bottom:8px;text-align:center}
+.chart-box canvas{max-height:150px}
+.table-card{padding:16px 20px 12px}
+.tbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+.tbar input[type=search],.tbar select{background:var(--panel2);border:1px solid var(--line);color:var(--txt);padding:8px 12px;border-radius:9px;font-size:12.5px;font-family:inherit;outline:none}
+.tbar input[type=search]{width:230px}
+.tbar input:focus,.tbar select:focus{border-color:rgba(246,130,31,.55)}
+.count{margin-left:auto;font-size:12px;color:var(--muted);font-family:var(--mono)}
+.tbl-wrap{overflow:auto;max-height:480px;border:1px solid var(--line);border-radius:12px}
+table{width:100%;border-collapse:collapse;min-width:820px}
+th{position:sticky;top:0;background:#101827;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;padding:11px 12px;text-align:left;cursor:pointer;user-select:none;white-space:nowrap;z-index:2}
+th:hover{color:var(--orange)}
+th .arr{color:var(--orange);font-size:10px}
+td{padding:9px 12px;border-top:1px solid var(--line);font-size:13px;white-space:nowrap}
+tbody tr{transition:background .15s}
+tbody tr:hover{background:rgba(246,130,31,.05)}
+.mono{font-family:var(--mono);font-size:12.5px}
+.rank{color:var(--dim);font-family:var(--mono)}
+.rank.top3{color:var(--amber);font-weight:700}
+.lbar{display:inline-block;width:60px;height:5px;background:rgba(255,255,255,.07);border-radius:4px;overflow:hidden;vertical-align:middle;margin-left:8px}
+.lbar i{display:block;height:100%;background:linear-gradient(90deg,var(--green),var(--amber),var(--red));border-radius:4px}
+.badge{font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;font-family:var(--mono)}
+.badge.s{background:rgba(52,211,153,.13);color:var(--green);border:1px solid rgba(52,211,153,.3)}
+.badge.a{background:rgba(56,189,248,.12);color:var(--blue);border:1px solid rgba(56,189,248,.3)}
+.badge.b{background:rgba(251,173,65,.12);color:var(--amber);border:1px solid rgba(251,173,65,.3)}
+.badge.c{background:rgba(248,113,113,.12);color:var(--red);border:1px solid rgba(248,113,113,.3)}
+.copybtn{background:none;border:none;color:var(--dim);cursor:pointer;font-size:13px;padding:2px 5px;border-radius:5px}
+.copybtn:hover{color:var(--orange)}
+.empty{padding:44px;text-align:center;color:var(--dim);font-size:13px}
+.tabs{display:flex;gap:6px;padding:10px 14px 0}
+.tab{flex:1;text-align:center;padding:9px 4px;font-size:12.5px;font-weight:600;color:var(--muted);background:none;border:none;border-bottom:2px solid transparent;cursor:pointer;font-family:inherit;transition:.2s}
+.tab:hover{color:var(--txt)}
+.tab.on{color:var(--orange);border-bottom-color:var(--orange)}
+.pane{display:none;padding:16px}
+.pane.on{display:block}
+.frm{display:flex;flex-direction:column;gap:12px}
+.frm label{font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:5px}
+.frm label span{display:flex;justify-content:space-between}
+.frm label b{color:var(--amber);font-family:var(--mono);font-weight:600}
+.frm input,.frm select,.frm textarea{background:var(--panel2);border:1px solid var(--line);color:var(--txt);padding:8px 11px;border-radius:9px;font-size:12.5px;font-family:inherit;outline:none;transition:.2s}
+.frm textarea{font-family:var(--mono);font-size:11.5px;resize:vertical;min-height:64px}
+.frm input:focus,.frm select:focus,.frm textarea:focus{border-color:rgba(246,130,31,.55)}
+.frm .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.switch{display:flex;align-items:center;justify-content:space-between;font-size:12.5px;color:var(--muted)}
+.switch input{display:none}
+.switch .tk{width:36px;height:20px;background:rgba(255,255,255,.1);border-radius:99px;position:relative;transition:.2s;flex:none}
+.switch .tk::after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:.2s}
+.switch input:checked+.tk{background:var(--orange)}
+.switch input:checked+.tk::after{left:18px}
+.frm-btns{display:flex;gap:10px;margin-top:4px}
+.frm-btns .btn{flex:1;justify-content:center}
+.console{background:#060a10;border:1px solid var(--line);border-radius:11px;height:430px;overflow-y:auto;padding:12px;font-family:var(--mono);font-size:11.5px;line-height:1.75}
+.console .t{color:var(--dim)}
+.lg-INFO{color:#a9b4c6}.lg-WARN{color:var(--amber)}.lg-ERROR{color:var(--red)}.lg-OK{color:var(--green)}.lg-SCAN{color:var(--blue)}.lg-PUSH{color:var(--violet)}
+.console::-webkit-scrollbar,.tbl-wrap::-webkit-scrollbar,pre::-webkit-scrollbar{width:8px;height:8px}
+.console::-webkit-scrollbar-thumb,.tbl-wrap::-webkit-scrollbar-thumb,pre::-webkit-scrollbar-thumb{background:rgba(148,163,184,.18);border-radius:8px}
+.out-bar{display:flex;gap:8px;margin-bottom:10px;align-items:center}
+.out-bar .fname{font-family:var(--mono);font-size:12px;color:var(--orange);margin-right:auto}
+pre.yaml{background:#060a10;border:1px solid var(--line);border-radius:11px;padding:14px;font-family:var(--mono);font-size:11.5px;line-height:1.7;height:400px;overflow:auto;white-space:pre;color:#c6cede}
+.yk{color:#7dd3fc}.ys{color:#86efac}.yn{color:#fdba74}.yc{color:#526074}.yd{color:var(--orange)}
+footer{margin-top:22px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;color:var(--dim);font-size:12px}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{padding:4px 11px;border:1px solid var(--line);border-radius:999px;font-size:11px;color:var(--muted);font-family:var(--mono)}
+#toasts{position:fixed;right:22px;bottom:22px;display:flex;flex-direction:column;gap:10px;z-index:99}
+.toast{background:#101826;border:1px solid var(--line);border-left:3px solid var(--orange);padding:12px 16px;border-radius:11px;font-size:13px;box-shadow:0 12px 32px rgba(0,0,0,.5);animation:tin .3s;max-width:340px}
+.toast.ok{border-left-color:var(--green)}.toast.err{border-left-color:var(--red)}
+@keyframes tin{from{transform:translateX(30px);opacity:0}}
+@media(max-width:1180px){.stats{grid-template-columns:repeat(3,1fr)}.grid{grid-template-columns:1fr}}
+@media(max-width:720px){.stats{grid-template-columns:repeat(2,1fr)}.pipeline{flex-wrap:wrap}.pline{display:none}.charts .cgrid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div id="bgfx"></div>
+<div class="wrap">
+
+<header>
+  <div class="brand">
+    <div class="logo" id="logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19a4.5 4.5 0 100-9h-1.1A6.5 6.5 0 106 18.7"/><path d="M13 11l-3 5h4l-3 5" transform="translate(0 -2) scale(.9)"/></svg>
+    </div>
+    <div>
+      <h1>CF-IP <em>Pipeline</em></h1>
+      <p>Cloudflare 最优回源 IP 自动发现 · 多维评估 · GitHub 推送</p>
+    </div>
+  </div>
+  <div class="hright">
+    <div class="pill" id="pillBackend"><span class="dot"></span><span id="pillBackendTxt">正在检测后端…</span></div>
+    <div class="pill" id="pillCron">⏱ 下次调度 --:--</div>
+    <button class="btn" id="btnPush">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>推送 GitHub</button>
+    <button class="btn primary" id="btnScan">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg><span id="btnScanTxt">开始扫描</span></button>
+  </div>
+</header>
+
+<div class="stats">
+  <div class="card stat" style="--acc:var(--blue)">
+    <div class="s-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3.6 9h16.8M3.6 15h16.8M12 3a15 15 0 010 18"/></svg></div>
+    <div><div class="s-val" id="vTotal">0</div><div class="s-lab">候选 IP 总数</div><div class="s-sub" id="vCidrs">— 个 CIDR 段</div></div>
+  </div>
+  <div class="card stat" style="--acc:var(--violet)">
+    <div class="s-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 3H2l8 9.5V19l4 2v-8.5z"/></svg></div>
+    <div><div class="s-val" id="vPass">0</div><div class="s-lab">通过硬性过滤</div><div class="s-sub" id="vPassRate">通过率 —</div></div>
+  </div>
+  <div class="card stat" style="--acc:var(--orange)">
+    <div class="s-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 21h8M12 17v4M7 4h10v4a5 5 0 01-10 0zM7 6H4v2a3 3 0 003 3M17 6h3v2a3 3 0 01-3 3"/></svg></div>
+    <div><div class="s-val" id="vBest">0</div><div class="s-lab">优质 IP 榜单</div><div class="s-sub" id="vBestNote">Top N 输出</div></div>
+  </div>
+  <div class="card stat" style="--acc:var(--green)">
+    <div class="s-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h7l-1 8 10-12h-7z"/></svg></div>
+    <div><div class="s-val" id="vLat">—<small>ms</small></div><div class="s-lab">平均 TCP 延迟 (P95)</div><div class="s-sub" id="vLatNote">阈值 300ms</div></div>
+  </div>
+  <div class="card stat" style="--acc:var(--amber)">
+    <div class="s-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="12" r="3"/><path d="M8.7 7.5l6.6 3M8.7 16.5l6.6-3"/></svg></div>
+    <div><div class="s-val" id="vPush">0<small>次</small></div><div class="s-lab">GitHub 成功推送</div><div class="s-sub" id="vPushLast">最近：—</div></div>
+  </div>
+</div>
+
+<div class="card pipeline" id="pipeline"></div>
+
+<div class="card progress-card">
+  <div class="prog-head">
+    <div class="phase"><span class="spinner" id="spin" style="display:none"></span><span id="phaseTxt">空闲 · 等待任务</span></div>
+    <div class="prog-meta"><span id="progIp">0 / 0</span> · <span id="progPct">0%</span></div>
+  </div>
+  <div class="bar"><div id="progBar"></div></div>
+</div>
+
+<div class="grid">
+  <div class="col">
+    <div class="card table-card">
+      <div class="tbar">
+        <h3>🏆 优质 IP 排行榜</h3>
+        <input type="search" id="searchInp" placeholder="搜索 IP / 城市 / ASN…">
+        <select id="tierSel">
+          <option value="all">全部等级</option><option value="s">S · 优秀</option><option value="a">A · 良好</option><option value="b">B · 一般</option>
+        </select>
+        <span class="count" id="countLbl">0 条记录</span>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr id="thead">
+            <th data-key="score" style="width:52px">排名</th>
+            <th data-key="ip_address">IP 地址</th>
+            <th data-key="city">位置</th>
+            <th data-key="asn">ASN</th>
+            <th data-key="tcp">TCP P95 <span class="arr"></span></th>
+            <th data-key="tls">TLS P95</th>
+            <th data-key="rate">HTTP 成功率</th>
+            <th data-key="score2">评分</th>
+          </tr></thead>
+          <tbody id="tbody"><tr><td colspan="8"><div class="empty">暂无数据 — 点击「开始扫描」启动探测管道</div></td></tr></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card charts">
+      <h3>📊 探测数据分析</h3>
+      <div class="cgrid">
+        <div class="chart-box"><p>TCP 延迟分布（通过初筛 IP）</p><canvas id="latHist"></canvas></div>
+        <div class="chart-box"><p>综合评分 Top 10</p><canvas id="scoreTop"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="card">
+      <div class="tabs">
+        <button class="tab on" data-tab="cfg">⚙ 配置</button>
+        <button class="tab" data-tab="log">📜 实时日志</button>
+        <button class="tab" data-tab="out">📄 输出预览</button>
+      </div>
+      <div class="pane on" id="pane-cfg">
+        <div class="frm">
+          <div class="row2">
+            <label><span>最大延迟阈值 <b id="bMaxLat"></b></span><input type="range" min="100" max="800" step="20" id="cfgMaxLat"></label>
+            <label><span>探测轮次 <b id="bRounds"></b></span><input type="range" min="1" max="6" id="cfgRounds"></label>
+          </div>
+          <div class="row2">
+            <label>并发数<input type="number" id="cfgConc" min="1" max="500"></label>
+            <label>最低成功率 %<input type="number" id="cfgMinRate" min="0" max="100"></label>
+          </div>
+          <div class="row2">
+            <label>榜单 Top N<input type="number" id="cfgTopN" min="1" max="200"></label>
+            <label>调度周期<select id="cfgSched"><option value="15">每 15 分钟</option><option value="30">每 30 分钟</option><option value="60">每小时</option><option value="120">每 2 小时</option><option value="1440">每天</option></select></label>
+          </div>
+          <label>自定义第三方反代 CIDR / IP（每行一条，可选）<textarea id="cfgCidrs" placeholder="例如：1.2.3.0/24&#10;203.0.113.7"></textarea></label>
+          <label>GitHub 目标仓库（owner/repo）<input id="cfgRepo" placeholder="myname/cf-best-ips"></label>
+          <div class="row2">
+            <label>分支<input id="cfgBranch" placeholder="main"></label>
+            <label>输出文件<input id="cfgFile" placeholder="best-cloudflare-ips.yaml"></label>
+          </div>
+          <div class="switch"><span>扫描完成后自动推送 GitHub</span><label><input type="checkbox" id="cfgAutoPush"><span class="tk"></span></label></div>
+          <div class="frm-btns">
+            <button class="btn" id="btnSaveCfg">💾 保存配置</button>
+            <button class="btn primary" id="btnScan2">▶ 立即执行</button>
+          </div>
+        </div>
+      </div>
+      <div class="pane" id="pane-log"><div class="console" id="console"></div></div>
+      <div class="pane" id="pane-out">
+        <div class="out-bar">
+          <span class="fname" id="fnameLbl">best-cloudflare-ips.yaml</span>
+          <button class="btn small" id="btnCopy">📋 复制</button>
+          <button class="btn small" id="btnDl">⬇ 下载</button>
+        </div>
+        <pre class="yaml" id="yamlPre"></pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <div>CF-IP Pipeline v1.0 · 设计原则：<b style="color:var(--amber)">方便 · 易用 · 美观 · 准确</b></div>
+  <div class="chips"><span class="chip">Alpine Linux</span><span class="chip">Supercronic</span><span class="chip">Flask</span><span class="chip">YAML</span><span class="chip">Git / PAT 环境变量注入</span></div>
+</footer>
+</div>
+<div id="toasts"></div>
+
+<script>
+const $=s=>document.querySelector(s);
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const rnd=Math.random;
+const randInt=(a,b)=>Math.floor(a+rnd()*(b-a+1));
+const pick=a=>a[randInt(0,a.length-1)];
+const pad=n=>String(n).padStart(2,'0');
+const nowStr=()=>{const d=new Date();return pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds())};
+const isoNow=()=>new Date().toISOString().replace('T',' ').slice(0,19);
+const escapeHtml=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+const OFFICIAL_CIDRS=['104.16.0.0/13','104.24.0.0/14','108.162.192.0/18','131.0.72.0/22','141.101.64.0/18','162.158.0.0/15','172.64.0.0/13','173.245.48.0/20','188.114.96.0/20','190.93.240.0/20','197.234.240.0/22','198.41.128.0/17'];
+const LOC_POOL=[['🇺🇸','Los Angeles','US'],['🇺🇸','San Jose','US'],['🇺🇸','Ashburn','US'],['🇸🇬','Singapore','SG'],['🇯🇵','Tokyo','JP'],['🇩🇪','Frankfurt','DE'],['🇳🇱','Amsterdam','NL'],['🇬🇧','London','GB'],['🇭🇰','Hong Kong','HK'],['🇰🇷','Seoul','KR'],['🇦🇺','Sydney','AU'],['🇫🇷','Paris','FR']];
+
+const state={running:false,progress:0,phase:'idle',results:[],passed:[],stats:{total:0,pass:0,push:0},logs:[],lastRun:null};
+const sortSt={key:'score',dir:-1};
+let connected=false, scanToken=0, logSeq=0, pollTimer=null;
+
+let cfg={max_latency_ms:300,rounds:3,concurrency:50,min_success_rate:60,top_n:20,schedule_min:30,custom_cidrs:'',github_repo:'',github_branch:'main',output_file:'best-cloudflare-ips.yaml',auto_push:true};
+try{const saved=localStorage.getItem('cfip_cfg');if(saved)cfg=Object.assign(cfg,JSON.parse(saved))}catch(e){}
+let cronAnchor=Date.now();
+
+function pushLog(msg,level='INFO'){
+  state.logs.push({t:nowStr(),msg,level});
+  if(state.logs.length>400)state.logs.shift();
+  renderLogs(true);
+}
+function renderLogs(autoscroll){
+  const c=$('#console');
+  c.innerHTML=state.logs.map(l=>`<div class="lg-${l.level}"><span class="t">[${l.t}]</span> ${escapeHtml(l.msg)}</div>`).join('');
+  if(autoscroll)c.scrollTop=c.scrollHeight;
+}
+
+const STEPS=[
+ ['IP 基础库构建','官方 CIDR + 自定义','<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>'],
+ ['多维度探测','TCP / TLS / HTTP','<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg>'],
+ ['硬性过滤','延迟 / 状态码门槛','<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 3H2l8 9.5V19l4 2v-8.5z"/></svg>'],
+ ['加权排序','P95 + 成功率评分','<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 21h8M12 17v4M7 4h10v4a5 5 0 01-10 0zM7 6H4v2a3 3 0 003 3M17 6h3v2a3 3 0 01-3 3"/></svg>'],
+ ['生成 YAML','结构化输出','<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg>'],
+ ['GitHub 推送','PAT 环境变量注入','<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="12" r="3"/><path d="M8.7 7.5l6.6 3M8.7 16.5l6.6-3"/></svg>']];
+function buildPipeline(){
+  $('#pipeline').innerHTML=STEPS.map((s,i)=>
+    `<div class="pstep" data-step="${i}"><div class="pic">${s[2]}</div><div><b>${s[0]}</b><span>${s[1]}</span></div></div>${i<STEPS.length-1?'<div class="pline" data-line="'+i+'"></div>':''}`).join('');
+}
+function setPipelineStep(idx){
+  document.querySelectorAll('.pstep').forEach((el,i)=>{
+    el.classList.toggle('done',idx>i&&idx>=0);
+    el.classList.toggle('active',i===idx);
+  });
+  document.querySelectorAll('.pline').forEach((el,i)=>{
+    el.classList.toggle('done',idx>i);
+    el.classList.toggle('active',i===idx-1||i===idx);
+  });
+}
+function clearPipeline(){document.querySelectorAll('.pstep,.pline').forEach(el=>el.classList.remove('done','active'))}
+
+function setProgress(pct,phase,ipText){
+  state.progress=pct;
+  $('#progBar').style.width=pct+'%';
+  $('#progPct').textContent=Math.round(pct)+'%';
+  if(phase)$('#phaseTxt').textContent=phase;
+  if(ipText!==undefined)$('#progIp').textContent=ipText;
+}
+
+function tierOf(score){return score>=82?'s':score>=66?'a':score>=50?'b':'c'}
+const TIER_TXT={s:'S 优秀',a:'A 良好',b:'B 一般',c:'C 较差'};
+function renderStats(){
+  $('#vTotal').textContent=state.stats.total;
+  $('#vPass').textContent=state.passed.length;
+  $('#vPassRate').textContent=state.stats.total?('通过率 '+(state.passed.length/state.stats.total*100).toFixed(1)+'%'):'通过率 —';
+  $('#vBest').textContent=state.results.length;
+  $('#vBestNote').textContent='Top '+cfg.top_n+' 输出';
+  const lats=state.results.map(r=>r.tcp).filter(v=>v!=null);
+  $('#vLat').innerHTML=lats.length?(lats.reduce((a,b)=>a+b,0)/lats.length).toFixed(1)+'<small>ms</small>':'—<small>ms</small>';
+  $('#vLatNote').textContent='阈值 '+cfg.max_latency_ms+'ms';
+  $('#vPush').innerHTML=state.stats.push+'<small>次</small>';
+  $('#vPushLast').textContent='最近：'+(state.lastPush||'—');
+  $('#vCidrs').textContent=(OFFICIAL_CIDRS.length+customCidrs().length)+' 个 CIDR 段';
+}
+function customCidrs(){return (cfg.custom_cidrs||'').split(/\n+/).map(s=>s.trim()).filter(s=>s&&s.includes('/'))}
+function renderTable(){
+  const q=$('#searchInp').value.trim().toLowerCase();
+  const tier=$('#tierSel').value;
+  let rows=[...state.results];
+  if(q)rows=rows.filter(r=>(r.ip_address+' '+r.city+' '+r.country+' '+r.asn).toLowerCase().includes(q));
+  if(tier!=='all')rows=rows.filter(r=>tierOf(r.score)===tier);
+  rows.sort((a,b)=>{
+    let k=sortSt.key==='score2'?'score':sortSt.key;
+    let va=a[k],vb=b[k];
+    if(typeof va==='string')return va.localeCompare(vb)*sortSt.dir;
+    return ((va??9999)-(vb??9999))*sortSt.dir;
+  });
+  $('#countLbl').textContent=rows.length+' 条记录';
+  if(!rows.length){$('#tbody').innerHTML='<tr><td colspan="8"><div class="empty">'+(state.results.length?'无匹配记录':'暂无数据 — 点击「开始扫描」启动探测管道')+'</div></td></tr>';return}
+  $('#tbody').innerHTML=rows.map((r,i)=>{
+    const t=tierOf(r.score);
+    return `<tr>
+      <td class="rank ${i<3?'top3':''}">#${i+1}</td>
+      <td class="mono">${r.ip_address}<button class="copybtn" data-ip="${r.ip_address}" title="复制">⧉</button></td>
+      <td>${r.flag||'🌐'} ${r.city}${r.country?' · '+r.country:''}</td>
+      <td class="mono" style="color:var(--dim)">${r.asn}</td>
+      <td class="mono">${r.tcp.toFixed(1)} ms<span class="lbar"><i style="width:${Math.min(100,r.tcp/4)}%"></i></span></td>
+      <td class="mono" style="color:var(--muted)">${r.tls.toFixed(1)} ms</td>
+      <td class="mono">${r.rate}%<span class="lbar"><i style="width:${r.rate}%;background:${r.rate>=80?'var(--green)':r.rate>=50?'var(--amber)':'var(--red)'}"></i></span></td>
+      <td><span class="badge ${t}">${r.score} · ${TIER_TXT[t]}</span></td>
+    </tr>`}).join('');
+}
+
+let latChart,scoreChart;
+function initCharts(){
+  Chart.defaults.color='#8b96a8';
+  Chart.defaults.borderColor='rgba(148,163,184,.08)';
+  Chart.defaults.font.family="'Inter',sans-serif";
+  Chart.defaults.font.size=10;
+  latChart=new Chart($('#latHist'),{type:'bar',data:{labels:['<50','50-100','100-150','150-200','200-250','250-300','>300'],datasets:[{data:[0,0,0,0,0,0,0],backgroundColor:'rgba(246,130,31,.55)',borderColor:'#f6821f',borderWidth:1,borderRadius:5}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{precision:0}},x:{grid:{display:false}}}}});
+  scoreChart=new Chart($('#scoreTop'),{type:'bar',data:{labels:[],datasets:[{data:[],backgroundColor:'rgba(52,211,153,.55)',borderColor:'#34d399',borderWidth:1,borderRadius:5}]},
+    options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{min:0,max:100},y:{grid:{display:false},ticks:{font:{family:"'JetBrains Mono',monospace",size:9}}}}}});
+}
+function renderCharts(){
+  const buckets=[0,0,0,0,0,0,0];
+  state.passed.forEach(r=>{const v=r.tcp;const i=v<50?0:v<100?1:v<150?2:v<200?3:v<250?4:v<300?5:6;buckets[i]++});
+  latChart.data.datasets[0].data=buckets;latChart.update();
+  const top=state.results.slice(0,10);
+  scoreChart.data.labels=top.map(r=>r.ip_address);
+  scoreChart.data.datasets[0].data=top.map(r=>r.score);
+  scoreChart.update();
+}
+
+function buildYaml(){
+  const ts=new Date().toISOString();
+  let y=`# ============================================================\n# ${cfg.output_file}\n# 由 CF-IP Pipeline 自动生成 · 请勿手动编辑\n# 评估标准：TCP/TLS 握手延迟(P95) + HTTP 成功率 + 多轮稳定性\n# ============================================================\nmeta:\n  version: "1.0"\n  generated_at: "${ts}"\n  generator: "cf-ip-pipeline/1.0 (docker)"\n  criteria:\n    max_tcp_latency_ms: ${cfg.max_latency_ms}\n    min_http_success_rate_percent: ${cfg.min_success_rate}\n    test_rounds: ${cfg.rounds}\n    percentile: "P95"\n  total_candidates: ${state.stats.total}\n  passed_hard_filter: ${state.passed.length}\n\nbest_ips:\n`;
+  if(!state.results.length)return y+'  []\n';
+  state.results.forEach(r=>{
+    y+=`  - ip_address: ${r.ip_address}\n    asn: ${r.asn}\n    location: "${r.city}, ${r.country}"\n    tcp_handshake_latency_ms: ${r.tcp.toFixed(1)}\n    tls_handshake_latency_ms: ${r.tls.toFixed(1)}\n    http_success_rate_percent: ${r.rate}\n    quality_score: ${r.score}\n    last_tested_timestamp: "${r.tested}"\n`;
+  });
+  return y;
+}
+function hlYaml(s){
+  let h=escapeHtml(s);
+  h=h.replace(/^(#.*)$/gm,'<span class="yc">$1</span>');
+  h=h.replace(/^(\s*-?\s*)([a-zA-Z_][\w.-]*):/gm,'$1<span class="yk">$2</span>:');
+  h=h.replace(/"([^"]*)"/g,'<span class="ys">"$1"</span>');
+  h=h.replace(/: ([\d.]+)$/gm,': <span class="yn">$1</span>');
+  return h;
+}
+function renderOutput(){
+  $('#fnameLbl').textContent=cfg.output_file;
+  $('#yamlPre').innerHTML=hlYaml(buildYaml());
+}
+
+function toast(msg,type=''){
+  const t=document.createElement('div');
+  t.className='toast '+type;t.textContent=msg;
+  $('#toasts').appendChild(t);
+  setTimeout(()=>{t.style.opacity='0';t.style.transition='.4s';setTimeout(()=>t.remove(),400)},3200);
+}
+
+function ipFromCidr(cidr){
+  const [net,bitsStr]=cidr.split('/');const bits=parseInt(bitsStr)||24;
+  const p=net.split('.').map(Number);if(p.length!==4)return null;
+  let base=((p[0]<<24)|(p[1]<<16)|(p[2]<<8)|p[3])>>>0;
+  const size=Math.pow(2,32-bits);base=Math.floor(base/size)*size;
+  const v=base+randInt(1,Math.min(size,1<<18)-1);
+  return [(v>>>24)&255,(v>>>16)&255,(v>>>8)&255,v&255].join('.');
+}
+function p95(arr){if(!arr.length)return null;const s=[...arr].sort((a,b)=>a-b);return s[Math.min(s.length-1,Math.ceil(s.length*0.95)-1)]}
+function genProbe(ip){
+  const [flag,city,country]=pick(LOC_POOL);
+  const good=rnd()<0.6;
+  const base=good?22+rnd()*110:70+rnd()*380;
+  const tcps=[],tlss=[];let oks=0;
+  for(let i=0;i<cfg.rounds;i++){
+    const tcp=base*(0.85+rnd()*0.45);tcps.push(tcp);
+    tlss.push(tcp*(1.5+rnd()*0.7)+8+rnd()*20);
+    if(rnd()<(good?0.97:0.55))oks++;
+  }
+  const rate=Math.round(oks/cfg.rounds*100);
+  const tcpP=p95(tcps),tlsP=p95(tlss);
+  const latScore=Math.max(0,1-tcpP/400);
+  const score=Math.round(Math.max(0,Math.min(100,(latScore*0.55+rate/100*0.45)*100)));
+  return {ip_address:ip,asn:'AS13335',flag,city,country,tcp:tcpP,tls:tlsP,rate,rounds:cfg.rounds,score,tested:isoNow()};
+}
+
+function setRunning(on){
+  state.running=on;
+  $('#btnScan').disabled=on;$('#btnScan2').disabled=on;
+  $('#btnScanTxt').textContent=on?'扫描中…':'开始扫描';
+  $('#spin').style.display=on?'inline-block':'none';
+  $('#logo').classList.toggle('scanning',on);
+  $('#pillBackend').className='pill '+(on?'busy':connected?'ok':'warn');
+}
+async function simulateScan(){
+  const my=++scanToken;
+  setRunning(true);clearPipeline();renderStats();
+  pushLog('════ 管道任务启动 ═════','OK');
+  setPipelineStep(0);setProgress(2,'阶段 1/6 · 获取 Cloudflare 官方 IP 段…','—');
+  pushLog('GET https://www.cloudflare.com/ips/','SCAN');
+  await sleep(450+rnd()*400);
+  const cidrs=[...OFFICIAL_CIDRS,...customCidrs()];
+  pushLog(`官方 IPv4 段：${OFFICIAL_CIDRS.length} 个（104.16.0.0/13、172.64.0.0/13 …）`);
+  if(customCidrs().length)pushLog(`用户自定义反代 CIDR：${customCidrs().length} 个`);
+  else pushLog('未配置自定义第三方反代 CIDR（可在配置页添加）','WARN');
+  const pool=[];const seen=new Set();
+  cidrs.forEach(c=>{const per=Math.max(2,Math.min(14,Math.round(120/cidrs.length)));
+    for(let i=0;i<per;i++){const ip=ipFromCidr(c);if(ip&&!seen.has(ip)){seen.add(ip);pool.push(ip)}}});
+  pushLog(`候选池构建完成：${pool.length} 个 IP（采样自 ${cidrs.length} 个 CIDR）`,'OK');
+  state.stats.total=pool.length;renderStats();
+  if(my!==scanToken)return;
+  setPipelineStep(1);setProgress(8,'阶段 2/6 · TCP / TLS / HTTP 多轮探测…','0 / '+pool.length);
+  pushLog(`并发 ${cfg.concurrency} · 每 IP ${cfg.rounds} 轮 · 超时 3s · 目标端口 443 (SNI: cloudflare.com)`);
+  const results=[];const batch=Math.max(1,Math.round(pool.length/40));
+  for(let i=0;i<pool.length;i+=batch){
+    if(my!==scanToken)return;
+    const chunk=pool.slice(i,i+batch);
+    for(const ip of chunk)results.push(genProbe(ip));
+    const done=Math.min(i+batch,pool.length);
+    setProgress(8+done/pool.length*52,null,done+' / '+pool.length);
+    if(rnd()<0.5)pushLog(`探测进度 ${done}/${pool.length} · 最近样本：${pick(chunk)} TCP ${randInt(20,180)}ms`,'SCAN');
+    await sleep(90+rnd()*140);
+  }
+  setPipelineStep(2);setProgress(64,'阶段 3/6 · 硬性过滤（延迟上限 / 状态码 / 成功率）…');
+  await sleep(500);
+  const passed=results.filter(r=>r.tcp<=cfg.max_latency_ms&&r.rate>=cfg.min_success_rate);
+  pushLog(`硬性过滤：剔除 ${results.length-passed.length} 个（延迟 > ${cfg.max_latency_ms}ms 或成功率 < ${cfg.min_success_rate}%）`,'WARN');
+  pushLog(`通过初筛：${passed.length} 个 IP`,'OK');
+  if(my!==scanToken)return;
+  setPipelineStep(3);setProgress(74,'阶段 4/6 · 软性加权排序（延迟 55% + 成功率 45%）…');
+  await sleep(500);
+  passed.sort((a,b)=>b.score-a.score);
+  const best=passed.slice(0,cfg.top_n);
+  state.passed=passed;state.results=best;
+  pushLog(`综合评分完成，生成 Top ${best.length} 优质 IP 排行榜`,'OK');
+  setPipelineStep(4);setProgress(84,'阶段 5/6 · 生成结构化输出文件…');
+  await sleep(450);
+  pushLog(`写入 output/${cfg.output_file}（YAML · 含元数据与 ${best.length} 条记录）`);
+  if(my!==scanToken)return;
+  setPipelineStep(5);setProgress(92,'阶段 6/6 · Git 提交与推送…');
+  if(cfg.auto_push&&cfg.github_repo){
+    await simulatePush(false);
+  }else{
+    pushLog(cfg.github_repo?'auto_push 已关闭，跳过自动推送':'未配置 GitHub 仓库，跳过推送（可在配置页填写）','WARN');
+    await sleep(400);
+  }
+  setProgress(100,'管道任务完成 ✓','—');
+  setPipelineStep(6);
+  state.lastRun=isoNow();
+  pushLog('════ 任务结束 · 下次调度将在 '+cfg.schedule_min+' 分钟后 ════','OK');
+  setRunning(false);
+  renderStats();renderTable();renderCharts();renderOutput();
+  toast('扫描完成：'+best.length+' 个优质 IP 已生成','ok');
+}
+async function simulatePush(manual){
+  pushLog(`git clone --depth 1 -b ${cfg.github_branch} https://github.com/${cfg.github_repo}.git （令牌已注入 ••••）`,'PUSH');
+  await sleep(600);
+  pushLog(`写入 ${cfg.output_file}（${state.results.length} 条 IP 记录）`,'PUSH');
+  await sleep(450);
+  const hash=Math.random().toString(16).slice(2,9);
+  pushLog(`git commit -m "Update best Cloudflare IPs ${isoNow()}"`,'PUSH');
+  await sleep(400);
+  pushLog('git push origin '+cfg.github_branch,'PUSH');
+  await sleep(700);
+  state.stats.push++;state.lastPush=nowStr();
+  pushLog(`✔ 推送成功 · commit ${hash} · 令牌经环境变量注入，未写入镜像`,'OK');
+  if(manual)toast('推送成功 · commit '+hash,'ok');
+  renderStats();
+}
+
+async function api(path,opt={}){
+  const r=await fetch('/api'+path,Object.assign({headers:{'Content-Type':'application/json'}},opt));
+  if(!r.ok)throw new Error('HTTP '+r.status);
+  return r.json();
+}
+function startPolling(){
+  stopPolling();
+  pollTimer=setInterval(async()=>{
+    if(!connected)return stopPolling();
+    try{
+      const st=await api('/status');
+      state.running=st.running;state.progress=st.progress;
+      setProgress(st.progress,st.phase,st.running?null:'—');
+      if(st.logs&&st.logs.length){
+        state.logs=st.logs.map(l=>({t:l.t,msg:l.msg,level:l.level}));
+        renderLogs(true);
+      }
+      $('#btnScan').disabled=st.running;$('#btnScanTxt').textContent=st.running?'扫描中…':'开始扫描';
+      $('#spin').style.display=st.running?'inline-block':'none';
+      if(st.results&&st.results.length&&!st.running){
+        mapBackendResults(st);renderStats();renderTable();renderCharts();renderOutput();
+      }
+    }catch(e){}
+  },1000);
+}
+function stopPolling(){if(pollTimer){clearInterval(pollTimer);pollTimer=null}}
+function mapBackendResults(st){
+  state.results=(st.results||[]).map(r=>({ip_address:r.ip_address||r.ip,asn:r.asn||'—',flag:'🌐',city:r.city||r.location||'',country:r.country||'',tcp:r.tcp_handshake_latency_ms??r.tcp_p95??0,tls:r.tls_handshake_latency_ms??r.tls_p95??0,rate:r.http_success_rate_percent??r.http_rate??0,score:r.quality_score??r.score??0,tested:r.last_tested_timestamp||''}));
+  state.passed=state.results;
+  state.stats.total=st.stats?.total??state.results.length;
+  state.stats.push=st.push?.count??state.stats.push;
+}
+async function backendScan(){
+  const r=await api('/scan',{method:'POST'});
+  if(r.started){toast('后端扫描任务已启动','ok');startPolling()}
+  else toast('后端已有任务在运行','err');
+}
+async function backendPush(){
+  toast('正在推送至 GitHub…');
+  const r=await api('/push',{method:'POST'});
+  if(r.ok)toast('推送成功 · commit '+(r.commit||''),'ok');
+  else toast('推送失败：'+(r.error||'请检查 GITHUB_TOKEN 与仓库配置'),'err');
+}
+
+function fillCfgForm(){
+  $('#cfgMaxLat').value=cfg.max_latency_ms;$('#bMaxLat').textContent=cfg.max_latency_ms+' ms';
+  $('#cfgRounds').value=cfg.rounds;$('#bRounds').textContent=cfg.rounds+' 轮';
+  $('#cfgConc').value=cfg.concurrency;$('#cfgMinRate').value=cfg.min_success_rate;
+  $('#cfgTopN').value=cfg.top_n;$('#cfgSched').value=String(cfg.schedule_min);
+  $('#cfgCidrs').value=cfg.custom_cidrs;$('#cfgRepo').value=cfg.github_repo;
+  $('#cfgBranch').value=cfg.github_branch;$('#cfgFile').value=cfg.output_file;
+  $('#cfgAutoPush').checked=cfg.auto_push;
+}
+function collectCfg(){
+  cfg.max_latency_ms=+$('#cfgMaxLat').value;cfg.rounds=+$('#cfgRounds').value;
+  cfg.concurrency=+$('#cfgConc').value||50;cfg.min_success_rate=+$('#cfgMinRate').value||0;
+  cfg.top_n=+$('#cfgTopN').value||20;cfg.schedule_min=+$('#cfgSched').value;
+  cfg.custom_cidrs=$('#cfgCidrs').value;cfg.github_repo=$('#cfgRepo').value.trim();
+  cfg.github_branch=$('#cfgBranch').value.trim()||'main';
+  cfg.output_file=$('#cfgFile').value.trim()||'best-cloudflare-ips.yaml';
+  cfg.auto_push=$('#cfgAutoPush').checked;
+}
+async function saveCfg(){
+  collectCfg();
+  localStorage.setItem('cfip_cfg',JSON.stringify(cfg));
+  cronAnchor=Date.now();
+  fillCfgForm();renderStats();renderOutput();
+  if(connected){try{await api('/config',{method:'POST',body:JSON.stringify(cfg)})}catch(e){}}
+  toast('配置已保存并生效','ok');
+  pushLog(`配置更新：延迟阈值 ${cfg.max_latency_ms}ms · 轮次 ${cfg.rounds} · 并发 ${cfg.concurrency} · Top ${cfg.top_n}`);
+}
+
+setInterval(()=>{
+  const ms=cfg.schedule_min*60000;
+  const remain=ms-((Date.now()-cronAnchor)%ms);
+  const m=Math.floor(remain/60000),s=Math.floor(remain%60000/1000);
+  $('#pillCron').textContent=(state.running?'⚙ 任务执行中':'⏱ 下次调度 '+pad(m)+':'+pad(s));
+},1000);
+
+function startScan(){
+  if(state.running)return;
+  if(connected){backendScan().catch(()=>{connected=false;simulateScan()})}
+  else simulateScan();
+}
+$('#btnScan').onclick=startScan;
+$('#btnScan2').onclick=startScan;
+$('#btnSaveCfg').onclick=saveCfg;
+$('#btnPush').onclick=async()=>{
+  if(connected){backendPush();return}
+  if(!state.results.length){toast('请先执行一次扫描','err');return}
+  if(!cfg.github_repo){toast('请先在配置页填写 GitHub 仓库','err');return}
+  await simulatePush(true);
+};
+$('#btnCopy').onclick=()=>{navigator.clipboard.writeText(buildYaml()).then(()=>toast('YAML 已复制到剪贴板','ok'))};
+$('#btnDl').onclick=()=>{
+  const blob=new Blob([buildYaml()],{type:'text/yaml'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=cfg.output_file;a.click();
+  toast('已下载 '+cfg.output_file,'ok');
+};
+$('#searchInp').oninput=renderTable;
+$('#tierSel').onchange=renderTable;
+$('#cfgMaxLat').oninput=e=>$('#bMaxLat').textContent=e.target.value+' ms';
+$('#cfgRounds').oninput=e=>$('#bRounds').textContent=e.target.value+' 轮';
+document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));
+  document.querySelectorAll('.pane').forEach(x=>x.classList.remove('on'));
+  t.classList.add('on');$('#pane-'+t.dataset.tab).classList.add('on');
+});
+$('#thead').querySelectorAll('th').forEach(th=>th.onclick=()=>{
+  const k=th.dataset.key;if(!k)return;
+  if(sortSt.key===k)sortSt.dir*=-1;else{sortSt.key=k;sortSt.dir=k==='ip_address'||k==='city'||k==='asn'?1:-1}
+  renderTable();
+});
+$('#tbody').addEventListener('click',e=>{
+  const b=e.target.closest('.copybtn');if(!b)return;
+  navigator.clipboard.writeText(b.dataset.ip).then(()=>toast('已复制 '+b.dataset.ip,'ok'));
+});
+
+async function detectBackend(){
+  try{
+    const ctl=new AbortController();setTimeout(()=>ctl.abort(),1800);
+    const d=await api('/health');
+    connected=true;
+    $('#pillBackend').classList.add('ok');
+    $('#pillBackendTxt').textContent='后端已连接 · 容器运行 '+Math.floor((d.uptime||0)/60)+' 分钟';
+    pushLog('已连接 Flask 后端（Docker 容器模式），扫描与推送将由真实探测引擎执行','OK');
+    try{const st=await api('/status');if(st.results&&st.results.length)mapBackendResults(st);if(st.running)startPolling()}catch(e){}
+  }catch(e){
+    connected=false;
+    $('#pillBackend').classList.add('warn');
+    $('#pillBackendTxt').textContent='演示模式 · 浏览器模拟';
+    pushLog('未检测到 Flask 后端，已切换为浏览器模拟引擎（部署 Docker 后自动接入真实探测）','WARN');
+    setTimeout(simulateScan,700);
+  }
+  renderStats();renderTable();renderCharts();renderOutput();
+}
+buildPipeline();fillCfgForm();initCharts();renderStats();renderOutput();
+pushLog('CF-IP Pipeline 控制台已就绪 · 设计原则：方便 / 易用 / 美观 / 准确','OK');
+pushLog('IP 基础库：Cloudflare 官方 '+OFFICIAL_CIDRS.length+' 个 CIDR 段已加载（cloudflare.com/ips）');
+detectBackend();
+</script>
+</body>
+</html>
