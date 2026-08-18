@@ -1,0 +1,25 @@
+# config.yaml · 后端配置文件（挂载进容器）
+scan:
+  timeout_seconds: 3        # 单次 TCP/TLS/HTTP 超时
+  rounds: 3                 # 每个 IP 探测轮次（稳定性评估）
+  concurrency: 50           # 并发探测数
+  max_latency_ms: 300       # 硬性过滤：TCP P95 延迟上限
+  min_success_rate: 60      # 硬性过滤：HTTP 成功率下限（%）
+  max_candidates: 200       # 单次扫描候选 IP 上限（采样）
+
+sources:
+  cloudflare_official: true # 第一层：自动拉取 cloudflare.com/ips
+  custom_cidrs: []          # 第二层：手动添加第三方反代 CIDR / 单 IP
+    # - "1.2.3.0/24"
+    # - "203.0.113.7"
+
+output:
+  top_n: 20
+  format: yaml              # yaml | json
+  path: output/best-cloudflare-ips.yaml
+
+github:
+  repo: "yourname/cf-best-ips"                  # 例如 "yourname/cf-best-ips"
+  branch: main
+  file: best-cloudflare-ips.yaml
+  auto_push: true           # 需注入 GITHUB_TOKEN 环境变量
